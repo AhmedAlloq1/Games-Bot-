@@ -1,0 +1,1000 @@
+const {
+  ChannelType,
+  PermissionsBitField,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require('discord.js');
+
+const config = require('./config');
+const store = require('./dataStore');
+
+// =====================================================
+// TICKET CATEGORY
+// =====================================================
+
+// الكاتيجوري الأساسية لجميع التذاكر
+const TICKET_CATEGORY_ID = '1554425317588992002';
+
+
+// =====================================================
+// PERMISSIONS
+// =====================================================
+
+const TICKET_VIEW_PERMS = [
+  PermissionsBitField.Flags.ViewChannel,
+  PermissionsBitField.Flags.SendMessages,
+  PermissionsBitField.Flags.ReadMessageHistory,
+  PermissionsBitField.Flags.AttachFiles,
+  PermissionsBitField.Flags.EmbedLinks,
+];
+
+
+// =====================================================
+// TICKET TYPES
+// =====================================================
+
+const TICKET_TYPES = {
+  support: {
+    name: 'دعم فني',
+    emoji: '🛠️',
+    prefix: 'support',
+    pingMessage:
+      '🔔 {role} — تذكرة **دعم فني** جديدة من {user}، برجاء استلامها.',
+  },
+
+  team: {
+    name: 'تقديم مود',
+    emoji: '👤',
+    prefix: 'mod',
+    pingMessage:
+      '🔔 {role} — طلب **تقديم مود** جديد من {user}، برجاء المراجعة.',
+  },
+
+  admin: {
+    name: 'تقديم ايدتور',
+    emoji: '📋',
+    prefix: 'editor',
+    pingMessage:
+      '🔔 {role} — طلب **تقديم ايدتور** جديد من {user}، برجاء المراجعة.',
+  },
+};
+
+
+// =====================================================
+// HELPERS
+// =====================================================
+
+function typeKey(type) {
+  return TICKET_TYPES[type]
+    ? type
+    : 'support';
+}
+
+
+// =====================================================
+// CATEGORY
+// =====================================================
+
+// جميع أنواع التذاكر تستخدم نفس الكاتيجوري
+function getCategoryId() {
+  return TICKET_CATEGORY_ID;
+}
+
+
+// =====================================================
+// PING ROLE
+// =====================================================
+
+function getPingRoleId(type) {
+  return (
+    config.ticketPingRoleIds?.[typeKey(type)] ||
+    config.ticketPingRoleId ||
+    null
+  );
+}
+
+
+// =====================================================
+// TICKET PING MESSAGE
+// =====================================================
+
+function buildTicketPing(
+  user,
+  type = 'support'
+) {
+  const key = typeKey(type);
+
+  const roleId =
+    getPingRoleId(key);
+
+  const content =
+    TICKET_TYPES[key].pingMessage
+      .replace(
+        '{user}',
+        `<@${user.id}>`
+      )
+      .replace(
+        '{role}',
+        roleId
+          ? `<@&${roleId}>`
+          : ''
+      )
+      .replace(
+        /\s{2,}/g,
+        ' '
+      )
+      .trim();
+
+  return {
+    content,
+
+    allowedMentions: {
+      users: [user.id],
+      roles: roleId
+        ? [roleId]
+        : [],
+    },
+  };
+}
+
+
+// =====================================================
+// CHANNEL NAME
+// =====================================================
+
+function sanitizeChannelName(name) {
+  return name
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9\u0600-\u06FF-_]/g,
+      '-'
+    )
+    .replace(
+      /-+/g,
+      '-'
+    )
+    .slice(
+      0,
+      30
+    );
+}
+
+
+// =====================================================
+// TICKET BUTTONS
+// =====================================================
+
+function ticketActionRow({
+  claimed = false,
+} = {}) {
+
+  return new ActionRowBuilder()
+    .addComponents(
+
+      new ButtonBuilder()
+        .setCustomId(
+          'ticket_claim'
+        )
+        .setLabel(
+          claimed
+            ? 'تم استلام التذكرة'
+            : 'استلام التذكرة'
+        )
+        .setEmoji('🎯')
+        .setStyle(
+          ButtonStyle.Primary
+        )
+        .setDisabled(
+          claimed
+        ),
+
+      new ButtonBuilder()
+        .setCustomId(
+          'ticket_close'
+        )
+        .setLabel(
+          'إغلاق التذكرة'
+        )
+        .setEmoji('🔒')
+        .setStyle(
+          ButtonStyle.Danger
+        ),
+
+      new ButtonBuilder()
+        .setCustomId(
+          'ticket_report'
+        )
+        .setLabel(
+          'Staff Report'
+        )
+        .setEmoji('🚩')
+        .setStyle(
+          ButtonStyle.Secondary
+        )
+    );
+}
+
+
+// =====================================================
+// TICKET PANEL
+// =====================================================
+
+function panelEmbed() {
+
+  return {
+    color: 0xC9A227,
+
+    title:
+      '⚜️ إدارة سيرفر ZN-MAZEN',
+
+    description:
+      'مرحبًا بك في نظام التذاكر الخاص بإدارة سيرفر **ZN-MAZEN**.\n\n' +
+
+      'يرجى اختيار القسم المناسب من الأزرار بالأسفل، وسيتم التعامل مع طلبك من قِبل الإدارة المختصة.\n\n' +
+
+      '🛠️ **الدعم الفني**\n' +
+      'لطرح المشاكل والاستفسارات أو طلب المساعدة بخصوص السيرفر.\n\n' +
+
+      '👤 **التقديم على مود**\n' +
+      'لمن يرغب في التقديم للانضمام إلى فريق الموديراتور في سيرفر **ZN-MAZEN**.\n\n' +
+
+      '📋 **التقديم على ايدتور**\n' +
+      'لمن يرغب في التقديم للعمل كايدتور ضمن سيرفر **ZN-MAZEN**.\n\n' +
+
+      '━━━━━━━━━━━━━━━━━━\n\n' +
+
+      '📌 **يرجى اختيار القسم المناسب لطلبك وعدم فتح أكثر من تذكرة لنفس الموضوع.**\n\n' +
+
+      '⚜️ **ZN-MAZEN • Server Management**',
+  };
+}
+
+
+// =====================================================
+// PANEL BUTTONS
+// =====================================================
+
+function panelActionRow() {
+
+  return new ActionRowBuilder()
+    .addComponents(
+
+      new ButtonBuilder()
+        .setCustomId(
+          'ticket_support'
+        )
+        .setLabel(
+          'الدعم الفني'
+        )
+        .setEmoji('🛠️')
+        .setStyle(
+          ButtonStyle.Secondary
+        ),
+
+      new ButtonBuilder()
+        .setCustomId(
+          'ticket_team'
+        )
+        .setLabel(
+          'التقديم على مود'
+        )
+        .setEmoji('👤')
+        .setStyle(
+          ButtonStyle.Primary
+        ),
+
+      new ButtonBuilder()
+        .setCustomId(
+          'ticket_admin'
+        )
+        .setLabel(
+          'التقديم على ايدتور'
+        )
+        .setEmoji('📋')
+        .setStyle(
+          ButtonStyle.Secondary
+        )
+    );
+}
+
+
+// =====================================================
+// CLOSE CONFIRMATION
+// =====================================================
+
+function closeRequestActionRow() {
+
+  return new ActionRowBuilder()
+    .addComponents(
+
+      new ButtonBuilder()
+        .setCustomId(
+          'ticket_confirm_close'
+        )
+        .setLabel(
+          'تأكيد الإغلاق'
+        )
+        .setEmoji('✅')
+        .setStyle(
+          ButtonStyle.Danger
+        ),
+
+      new ButtonBuilder()
+        .setCustomId(
+          'ticket_cancel_close'
+        )
+        .setLabel(
+          'إلغاء'
+        )
+        .setEmoji('❌')
+        .setStyle(
+          ButtonStyle.Secondary
+        )
+    );
+}
+
+
+// =====================================================
+// CREATE TICKET
+// =====================================================
+
+async function createTicketForUser(
+  guild,
+  user,
+  type = 'support'
+) {
+
+  const ticketType =
+    TICKET_TYPES[type] ||
+    TICKET_TYPES.support;
+
+
+  // ---------------------------------------------------
+  // CHECK EXISTING TICKET
+  // ---------------------------------------------------
+
+  const existing =
+    store.getOpenTicketByUser(
+      user.id
+    );
+
+  if (existing) {
+
+    const existingChannel =
+      guild.channels.cache.get(
+        existing.channelId
+      );
+
+    if (existingChannel) {
+
+      return {
+        error: 'already_open',
+        channel: existingChannel,
+        ticket: existing,
+      };
+    }
+  }
+
+
+  // ---------------------------------------------------
+  // FIXED CATEGORY
+  // ---------------------------------------------------
+
+  const categoryId =
+    TICKET_CATEGORY_ID;
+
+
+  console.log(
+    `[TICKET] Using category: ${categoryId}`
+  );
+
+
+  const category =
+    guild.channels.cache.get(
+      categoryId
+    );
+
+
+  // ---------------------------------------------------
+  // CATEGORY CHECK
+  // ---------------------------------------------------
+
+  if (!category) {
+
+    console.error(
+      `[TICKET] Category not found: ${categoryId}`
+    );
+
+    return {
+      error: 'category_not_found',
+    };
+  }
+
+
+  if (
+    category.type !==
+    ChannelType.GuildCategory
+  ) {
+
+    console.error(
+      `[TICKET] ID ${categoryId} is not a category.`
+    );
+
+    return {
+      error: 'invalid_category',
+    };
+  }
+
+
+  // ---------------------------------------------------
+  // PERMISSIONS
+  // ---------------------------------------------------
+
+  const overwrites = [
+
+    {
+      id: guild.roles.everyone.id,
+
+      deny: [
+        PermissionsBitField.Flags.ViewChannel,
+      ],
+    },
+
+
+    {
+      id: user.id,
+
+      allow:
+        TICKET_VIEW_PERMS,
+    },
+
+  ];
+
+
+  // ---------------------------------------------------
+  // STAFF ROLES
+  // ---------------------------------------------------
+
+  for (
+    const roleId of
+    config.staffRoleIds || []
+  ) {
+
+    overwrites.push({
+
+      id: roleId,
+
+      allow: [
+
+        PermissionsBitField.Flags.ViewChannel,
+
+        PermissionsBitField.Flags.SendMessages,
+
+        PermissionsBitField.Flags.ReadMessageHistory,
+
+        PermissionsBitField.Flags.ManageChannels,
+
+        PermissionsBitField.Flags.ManageMessages,
+
+      ],
+
+    });
+  }
+
+
+  // ---------------------------------------------------
+  // PING ROLE
+  // ---------------------------------------------------
+
+  const pingRoleId =
+    getPingRoleId(type);
+
+
+  if (
+    pingRoleId &&
+    !(config.staffRoleIds || [])
+      .includes(pingRoleId)
+  ) {
+
+    overwrites.push({
+
+      id: pingRoleId,
+
+      allow: [
+
+        PermissionsBitField.Flags.ViewChannel,
+
+        PermissionsBitField.Flags.SendMessages,
+
+        PermissionsBitField.Flags.ReadMessageHistory,
+
+      ],
+
+    });
+  }
+
+
+  // ---------------------------------------------------
+  // CHANNEL NAME
+  // ---------------------------------------------------
+
+  const username =
+    sanitizeChannelName(
+      user.username
+    );
+
+
+  const channelName = [
+
+    ticketType.prefix,
+
+    username,
+
+  ]
+    .filter(Boolean)
+    .join('-')
+    .slice(
+      0,
+      100
+    );
+
+
+  // ---------------------------------------------------
+  // CREATE CHANNEL
+  // ---------------------------------------------------
+
+  const channel =
+    await guild.channels.create({
+
+      name:
+        channelName,
+
+      type:
+        ChannelType.GuildText,
+
+      // الكاتيجوري الثابتة
+      parent:
+        TICKET_CATEGORY_ID,
+
+      permissionOverwrites:
+        overwrites,
+
+      topic:
+        ticketType.name +
+        ' | ' +
+        user.tag,
+
+    });
+
+
+  // ---------------------------------------------------
+  // SAVE TICKET
+  // ---------------------------------------------------
+
+  const ticket =
+    store.createTicket(
+
+      channel.id,
+
+      {
+
+        creatorId:
+          user.id,
+
+        creatorTag:
+          user.tag,
+
+        type,
+
+        typeName:
+          ticketType.name,
+
+        pingRoleId:
+          pingRoleId ||
+          null,
+
+      }
+
+    );
+
+
+  return {
+
+    channel,
+
+    ticket,
+
+    type,
+
+  };
+}
+
+
+// =====================================================
+// CLAIM TICKET
+// =====================================================
+
+async function claimTicket(
+  channel,
+  staffMember
+) {
+
+  const ticket =
+    store.getTicketByChannelId(
+      channel.id
+    );
+
+
+  if (!ticket) {
+
+    return {
+      error: 'not_ticket',
+    };
+
+  }
+
+
+  if (
+    ticket.status ===
+    'closed'
+  ) {
+
+    return {
+      error: 'closed',
+    };
+
+  }
+
+
+  if (ticket.claimerId) {
+
+    return {
+
+      error:
+        'already_claimed',
+
+      ticket,
+
+    };
+
+  }
+
+
+  const rolesToHide = [
+
+    ...new Set([
+
+      ...(config.staffRoleIds || []),
+
+      ...(ticket.pingRoleId
+        ? [ticket.pingRoleId]
+        : []),
+
+    ]),
+
+  ];
+
+
+  for (
+    const roleId of
+    rolesToHide
+  ) {
+
+    await channel
+      .permissionOverwrites
+      .edit(
+
+        roleId,
+
+        {
+
+          ViewChannel:
+            false,
+
+          SendMessages:
+            false,
+
+          ReadMessageHistory:
+            false,
+
+        }
+
+      );
+
+  }
+
+
+  await channel
+    .permissionOverwrites
+    .edit(
+
+      staffMember.id,
+
+      {
+
+        ViewChannel:
+          true,
+
+        SendMessages:
+          true,
+
+        ReadMessageHistory:
+          true,
+
+        ManageMessages:
+          true,
+
+      }
+
+    );
+
+
+  await channel
+    .permissionOverwrites
+    .edit(
+
+      ticket.creatorId,
+
+      {
+
+        ViewChannel:
+          true,
+
+        SendMessages:
+          true,
+
+        ReadMessageHistory:
+          true,
+
+        AttachFiles:
+          true,
+
+        EmbedLinks:
+          true,
+
+      }
+
+    );
+
+
+  const updated =
+    store.updateTicket(
+
+      channel.id,
+
+      {
+
+        claimerId:
+          staffMember.id,
+
+        claimerTag:
+          staffMember.user.tag,
+
+      }
+
+    );
+
+
+  return {
+    ticket: updated,
+  };
+}
+
+
+// =====================================================
+// ADD USER
+// =====================================================
+
+async function addUserToTicket(
+  channel,
+  userId
+) {
+
+  await channel
+    .permissionOverwrites
+    .edit(
+
+      userId,
+
+      {
+
+        ViewChannel:
+          true,
+
+        SendMessages:
+          true,
+
+        ReadMessageHistory:
+          true,
+
+        AttachFiles:
+          true,
+
+        EmbedLinks:
+          true,
+
+      }
+
+    );
+
+
+  return true;
+}
+
+
+// =====================================================
+// RENAME
+// =====================================================
+
+async function renameTicket(
+  channel,
+  newName
+) {
+
+  const safeName =
+    sanitizeChannelName(
+      newName
+    );
+
+
+  await channel.setName(
+    safeName
+  );
+
+
+  return true;
+}
+
+
+// =====================================================
+// CLOSE TICKET
+// =====================================================
+
+async function closeTicket(
+  channel,
+  closedByUser
+) {
+
+  const ticket =
+    store.getTicketByChannelId(
+      channel.id
+    );
+
+
+  if (!ticket) {
+
+    return {
+      error: 'not_ticket',
+    };
+
+  }
+
+
+  if (
+    ticket.status ===
+    'closed'
+  ) {
+
+    return {
+
+      error:
+        'already_closed',
+
+      ticket,
+
+    };
+
+  }
+
+
+  if (
+    ticket.creatorId
+  ) {
+
+    await channel
+      .permissionOverwrites
+      .edit(
+
+        ticket.creatorId,
+
+        {
+
+          SendMessages:
+            false,
+
+        }
+
+      );
+
+  }
+
+
+  if (
+    ticket.addedUserIds
+  ) {
+
+    for (
+      const userId of
+      ticket.addedUserIds
+    ) {
+
+      await channel
+        .permissionOverwrites
+        .edit(
+
+          userId,
+
+          {
+
+            SendMessages:
+              false,
+
+          }
+
+        );
+
+    }
+
+  }
+
+
+  const updated =
+    store.updateTicket(
+
+      channel.id,
+
+      {
+
+        status:
+          'closed',
+
+        closedAt:
+          Date.now(),
+
+        closedById:
+          closedByUser.id,
+
+        closedByTag:
+          closedByUser.tag,
+
+      }
+
+    );
+
+
+  return {
+    ticket: updated,
+  };
+}
+
+
+// =====================================================
+// EXPORTS
+// =====================================================
+
+module.exports = {
+
+  TICKET_TYPES,
+
+  ticketActionRow,
+
+  panelActionRow,
+
+  panelEmbed,
+
+  closeRequestActionRow,
+
+  createTicketForUser,
+
+  buildTicketPing,
+
+  claimTicket,
+
+  addUserToTicket,
+
+  renameTicket,
+
+  closeTicket,
+
+};
